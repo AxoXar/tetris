@@ -17,7 +17,7 @@ import (
 var (
 	mplusFaceSource *text.GoTextFaceSource
 	// оступ слева и справа, 1300 - ширина окна
-	Margin = (1300 - blockSize*13) / 2
+	Margin = (1300 - blockSize*20) / 2
 )
 
 // для работы текста, выполняется раньше всех функций
@@ -68,15 +68,11 @@ func NewGame(frame int) *Game {
 
 // функция для проверки заполненности строк
 func (g *Game) checkLines() {
+	var linesCount int
 	for y := 17; y >= 0; y-- {
-		color := g.board[y][0]
-		// пропуск пустых строк
-		if color == 0 {
-			continue
-		}
 		flag := true
 		for x := 1; x < 11; x++ {
-			if g.board[y][x] != color {
+			if g.board[y][x] == 0 {
 				flag = false
 				break
 			}
@@ -84,8 +80,8 @@ func (g *Game) checkLines() {
 
 		// если строка одного цвета
 		if flag {
-			//увеличиваем счёт
-			g.score++
+			//считаем количество строк
+			linesCount++
 			for newY := y; newY > 0; newY-- {
 				for x := 0; x < 11; x++ {
 					g.board[newY][x] = g.board[newY-1][x]
@@ -98,6 +94,17 @@ func (g *Game) checkLines() {
 			// чтобы убирать несколько строк подряд
 			y++
 		}
+	}
+	// Считаем очки за определенное количество строк
+	switch linesCount {
+	case 1:
+		g.score += 100
+	case 2:
+		g.score += 300
+	case 3:
+		g.score += 700
+	case 4:
+		g.score += 1500
 	}
 }
 
@@ -125,6 +132,9 @@ func (g *Game) Update() error {
 	}
 
 	g.frameCount++
+	if ebiten.IsKeyPressed(ebiten.KeyW) {
+		g.currentFigure = move.Spin(g.currentFigure, g.board)
+	}
 	if ebiten.IsKeyPressed(ebiten.KeyD) {
 		g.currentFigure = move.Right(g.currentFigure, g.board)
 	}
@@ -132,7 +142,7 @@ func (g *Game) Update() error {
 		g.currentFigure = move.Left(g.currentFigure, g.board)
 	}
 	// если нажата S ИЛИ количество прошедших кадров кратно выставленному обновлению (сложности), то опустить фигуру
-	if g.frameCount%g.frame == 0 || ebiten.IsKeyPressed(ebiten.KeyS) {
+	if g.frameCount%g.frame == 0 || ebiten.IsKeyPressed(ebiten.KeySpace) {
 		if move.CanGoDown(g.currentFigure, g.board) {
 			g.currentFigure = move.Down(g.currentFigure, g.board)
 		} else {

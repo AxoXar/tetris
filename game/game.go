@@ -329,7 +329,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.DrawBoard(screen)
 	g.drawNextFig(screen)
 	g.drawScore(screen)
-
+	g.drawDifficulty(screen)
 	// рисование с матрицы
 	for x := 0; x < 11; x++ {
 		for y := 0; y < 18; y++ {
@@ -491,6 +491,22 @@ func (g *Game) drawScore(screen *ebiten.Image) {
 	op := &text.DrawOptions{}
 	op.GeoM.Translate(float64(Margin)+817, 20)
 	strScore := fmt.Sprintf("Current score: %d", g.Score)
+	text.Draw(screen, strScore, &text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   24,
+	}, op)
+}
+
+// вывод текущих очков
+func (g *Game) drawDifficulty(screen *ebiten.Image) {
+	op := &text.DrawOptions{}
+	difficulties := []string{
+		"Сложный",
+		"Средний",
+		"Лёгкий",
+	}
+	op.GeoM.Translate(167, 20)
+	strScore := fmt.Sprintf("Difficulty level: %s", difficulties[g.Difficulty-1])
 	text.Draw(screen, strScore, &text.GoTextFace{
 		Source: mplusFaceSource,
 		Size:   24,

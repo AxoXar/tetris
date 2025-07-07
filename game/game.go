@@ -1,10 +1,15 @@
 package game
 
 import (
+	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"image/color"
 	"log"
+	"os"
+	"strconv"
+	"strings"
 	bl "tetris/block"
 	fig "tetris/figure"
 	move "tetris/movement"
@@ -16,8 +21,8 @@ import (
 
 var (
 	mplusFaceSource *text.GoTextFaceSource
-	// оступ слева и справа, 1300 - ширина окна
-	Margin = (1300 - blockSize*20) / 2
+	// оступ слева и справа
+	Margin = (1920 - blockSize*13) / 2
 )
 
 // для работы текста, выполняется раньше всех функций
@@ -35,34 +40,333 @@ const (
 )
 
 type Game struct {
-	frame         int
-	gameOver      bool
-	board         [18][11]int
-	index         int
-	figures       [7]string
-	colors        []int
-	currentFigure fig.Figure
-	currentColor  int
-	frameCount    int
-	score         int
+	Difficulty    int
+	GameOver      bool
+	Board         [18][11]int
+	Index         int
+	Figures       [7]string
+	CurrentFigure fig.Figure
+	CurrentColor  int
+	FrameCount    int
+	Score         int
+	Records       []string
+	Started       bool
+	Paused        bool
+	HoldKeys      map[string]int
 }
 
 // Функция для инициализации сессии
-func NewGame(frame int) *Game {
+func NewGame() *Game {
 	// создаём тут, чтобы обратиться к их содержимому по индексу ниже
 	figures := fig.RandomBag()
-	colors := fig.GetRandomNums()
+	holdKeys := map[string]int{
+		"W":     0,
+		"A":     0,
+		"D":     0,
+		"M1":    0,
+		"Space": 0,
+		"Esc":   0,
+	}
 	return &Game{
-		frame:         frame,
-		gameOver:      false,
-		board:         [18][11]int{},
-		index:         1,
-		figures:       figures,
-		colors:        colors,
-		currentFigure: fig.MapGetFigure[figures[0]],
-		currentColor:  colors[0],
-		frameCount:    0,
-		score:         0,
+		Difficulty:    0,
+		GameOver:      false,
+		Board:         [18][11]int{},
+		Index:         1,
+		Figures:       figures,
+		CurrentFigure: fig.MapGetFigure[figures[0]],
+		CurrentColor:  fig.MapGetColor[figures[0]],
+		FrameCount:    0,
+		Score:         0,
+		Records:       nil,
+		HoldKeys:      holdKeys,
+	}
+
+}
+
+// перезапуск при проигрыше
+func restartGame(g *Game) *Game {
+	g.WriteRecord()
+	g.GameOver = false
+	g.Board = [18][11]int{}
+	g.Index = 1
+	g.Figures = fig.RandomBag()
+	g.CurrentFigure = fig.MapGetFigure[g.Figures[0]]
+	g.CurrentColor = fig.MapGetColor[g.Figures[0]]
+	g.FrameCount = 0
+	g.Score = 0
+	g.Records = ReadRecord(g.Difficulty)
+	return g
+}
+
+// логика игры
+func (g *Game) Update() error {
+	// для перезапуска после поражения - нажать R
+	if g.GameOver {
+		if ebiten.IsKeyPressed(ebiten.KeyR) {
+			restartGame(g)
+		}
+		return nil
+	}
+
+	// пауза
+	pressedEsc := ebiten.IsKeyPressed(ebiten.KeyEscape)
+	if pressedEsc {
+		g.HoldKeys["Esc"]++
+		if g.HoldKeys["Esc"] == 1 {
+			g.Paused = !(g.Paused)
+		}
+	} else if !pressedEsc {
+		g.HoldKeys["Esc"] = 0
+	}
+
+	// не входить в логику игры при паузе
+	if g.Paused {
+		return nil
+	}
+
+	pressedMouse := ebiten.IsMouseButtonPressed(ebiten.MouseButton0)
+	if pressedMouse {
+		g.HoldKeys["M1"]++
+		if g.HoldKeys["M1"] == 1 {
+			x, y := ebiten.CursorPosition()
+			for i := 0; i < 3; i++ {
+				if (x >= 110 && x <= 510) && (y >= (75+i*200) && y <= (75+i*200+100)) {
+					g.Difficulty = 3 - i
+					g.Records = ReadRecord(g.Difficulty)
+					if !g.Started {
+						g.Started = true
+					} else if g.Started {
+						restartGame(g)
+					}
+				}
+			}
+
+			if (x >= 110 && x <= 510) && (y >= (75+3*200) && y <= (75+3*200+100)) {
+				err := g.SaveProgress("save.json")
+				if err != nil {
+					fmt.Println("Ошибка сохранения:", err)
+				}
+			} else if (x >= 110 && x <= 510) && (y >= (75+4*200) && y <= (75+4*200+100)) {
+				err := g.LoadProgress("save.json")
+				if err != nil {
+					fmt.Println("Ошибка загрузки:", err)
+				}
+			}
+		}
+	} else if !pressedMouse {
+		g.HoldKeys["M1"] = 0
+	}
+
+	// не входить в логику, если игра не запущена
+	if !g.Started {
+		return nil
+	}
+	g.FrameCount++
+
+	pressedW := ebiten.IsKeyPressed(ebiten.KeyW)
+	if pressedW {
+		g.HoldKeys["W"]++
+		if g.HoldKeys["W"] == 1 {
+			g.CurrentFigure = move.Spin(g.CurrentFigure, g.Board)
+		}
+	} else if !pressedW {
+		g.HoldKeys["W"] = 0
+	}
+
+	pressedD := ebiten.IsKeyPressed(ebiten.KeyD)
+	if pressedD {
+		g.HoldKeys["D"]++
+		if g.HoldKeys["D"] == 1 {
+			g.CurrentFigure = move.Right(g.CurrentFigure, g.Board)
+		} else if g.HoldKeys["D"] > 5 && g.HoldKeys["D"]%2 == 0 {
+			g.CurrentFigure = move.Right(g.CurrentFigure, g.Board)
+		}
+	} else if !pressedD {
+		g.HoldKeys["D"] = 0
+	}
+
+	pressedA := ebiten.IsKeyPressed(ebiten.KeyA)
+	if pressedA {
+		g.HoldKeys["A"]++
+		if g.HoldKeys["A"] == 1 {
+			g.CurrentFigure = move.Left(g.CurrentFigure, g.Board)
+		} else if g.HoldKeys["A"] > 5 && g.HoldKeys["A"]%2 == 0 {
+			g.CurrentFigure = move.Left(g.CurrentFigure, g.Board)
+		}
+	} else if !pressedA {
+		g.HoldKeys["A"] = 0
+	}
+
+	// если нажата S ИЛИ количество прошедших кадров кратно выставленному обновлению (сложности), то опустить фигуру
+	pressedSpace := ebiten.IsKeyPressed(ebiten.KeySpace)
+	if pressedSpace {
+		g.HoldKeys["Space"]++
+		if g.HoldKeys["Space"] == 1 {
+			g.loweringFigure()
+		} else if g.HoldKeys["Space"] > 5 && g.HoldKeys["Space"]%2 == 0 {
+			g.loweringFigure()
+		}
+	} else if (g.FrameCount)%(g.Difficulty*3) == 0 {
+		g.loweringFigure()
+	} else if !pressedSpace {
+		g.HoldKeys["Space"] = 0
+	}
+
+	return nil
+}
+
+func (g *Game) loweringFigure() {
+	if move.CanGoDown(g.CurrentFigure, g.Board) {
+		g.CurrentFigure = move.Down(g.CurrentFigure, g.Board)
+	} else {
+		for _, block := range g.CurrentFigure.Blocks {
+			x, y := block[0], block[1]
+			g.Board[y][x] = g.CurrentColor
+		}
+		g.checkLines()
+		g.CurrentFigure = fig.MapGetFigure[g.Figures[g.Index]]
+		g.CurrentColor = fig.MapGetColor[g.Figures[g.Index]]
+		g.Index++
+
+		if g.Index >= 7 {
+			g.Figures = fig.RandomBag()
+			g.Index = 0
+		}
+	}
+}
+
+// главная функция, отвечающая за отрисовку
+func (g *Game) Draw(screen *ebiten.Image) {
+	// заполним внутренность чёрным, а наружу - серым
+	screen.Fill(color.RGBA{45, 45, 45, 255})
+	block := ebiten.NewImage(11*blockSize, 18*blockSize)
+	block.Fill(color.Black)
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(float64(Margin)+blockSize, blockSize)
+	screen.DrawImage(block, op)
+
+	g.drawButtons(screen)
+	g.DrawEdging(screen)
+
+	// Если игра ещё не начата
+	if !g.Started {
+		g.drawRules(screen)
+		return
+	}
+	// Если игра на паузе
+	if g.Paused {
+		g.drawPauseInfo(screen)
+		return
+	}
+
+	g.drawRecords(screen)
+
+	// проверка на заполненность поля
+	if g.Board[0][5] != 0 {
+		g.GameOver = true
+		g.drawLose(screen)
+		return
+	}
+
+	g.DrawBoard(screen)
+	g.drawNextFig(screen)
+	g.drawScore(screen)
+
+	// рисование с матрицы
+	for x := 0; x < 11; x++ {
+		for y := 0; y < 18; y++ {
+			if color := g.Board[y][x]; color != 0 {
+				colorPal := bl.MapGetColor[color]
+				block := bl.GetBlock(blockSize, blockSize, 2, colorPal.Basic, colorPal.Lighter, colorPal.Darker)
+				op := &ebiten.DrawImageOptions{}
+				op.GeoM.Translate(float64(Margin)+float64(blockSize+x*blockSize), float64(blockSize+y*blockSize))
+				screen.DrawImage(block, op)
+			}
+		}
+	}
+	// рисование с временной фигуры в воздухе, она НЕ принадлежит матрице, становится её частью лишь после приземления
+	blocks := g.CurrentFigure.Blocks
+	for _, block := range blocks {
+		x, y := block[0], block[1]
+		colorPal := bl.MapGetColor[g.CurrentColor]
+		block := bl.GetBlock(blockSize, blockSize, 2, colorPal.Basic, colorPal.Lighter, colorPal.Darker)
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Translate(float64(Margin)+float64(blockSize+x*blockSize), float64(blockSize+y*blockSize))
+		screen.DrawImage(block, op)
+	}
+}
+
+func (g *Game) SaveProgress(filename string) error {
+	data, err := json.MarshalIndent(g, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filename, data, 0644)
+}
+
+func (g *Game) LoadProgress(filename string) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, g)
+}
+
+func (g *Game) drawButtons(screen *ebiten.Image) {
+	buttonText := make(map[int]string)
+	buttonText[0] = "Лёгкий"
+	buttonText[1] = "Средний"
+	buttonText[2] = "Сложный"
+	buttonText[3] = "Сохранить"
+	buttonText[4] = "Продолжить"
+
+	face := text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   17,
+	}
+
+	for i := 0; i < 5; i++ {
+		// кнопки-блоки
+		button := bl.GetBlock(400, 100, 2, color.RGBA{30, 144, 255, 255}, color.RGBA{56, 78, 255, 255}, color.RGBA{56, 78, 255, 255})
+		opButton := &ebiten.DrawImageOptions{}
+		opButton.GeoM.Translate(110, float64(75+i*200))
+		screen.DrawImage(button, opButton)
+		// Печать текста на кнопках
+		opText := &text.DrawOptions{}
+		opText.GeoM.Translate(110+(400-4.5*float64(len(buttonText[i])))/2, float64(75+i*200)+34)
+		text.Draw(screen, buttonText[i], &face, opText)
+	}
+}
+
+func (g *Game) drawRules(screen *ebiten.Image) {
+	lines := []string{
+		"Управление: W - поворот фигуры; A, D, Space - перемещение",
+		"Escape - поставить/снять паузу",
+		"Выберите сложность из предложенных",
+		"Задача: полностью наполнять линии блоками",
+	}
+	for i := 0; i < 4; i++ {
+		op := &text.DrawOptions{}
+		op.GeoM.Translate(float64(Margin)+blockSize*2, float64(400+50*i))
+		text.Draw(screen, lines[i], &text.GoTextFace{
+			Source: mplusFaceSource,
+			Size:   16,
+		}, op)
+	}
+}
+
+func (g *Game) drawPauseInfo(screen *ebiten.Image) {
+	lines := []string{
+		"Игра приоставновлена",
+		"Нажмите Esc, чтобы продолжить",
+	}
+	for i := 0; i < 2; i++ {
+		op := &text.DrawOptions{}
+		op.GeoM.Translate(float64(Margin)+blockSize*4, float64(400+50*i))
+		text.Draw(screen, lines[i], &text.GoTextFace{
+			Source: mplusFaceSource,
+			Size:   16,
+		}, op)
 	}
 }
 
@@ -71,25 +375,25 @@ func (g *Game) checkLines() {
 	var linesCount int
 	for y := 17; y >= 0; y-- {
 		flag := true
-		for x := 1; x < 11; x++ {
-			if g.board[y][x] == 0 {
+		for x := 0; x < 11; x++ {
+			if g.Board[y][x] == 0 {
 				flag = false
 				break
 			}
 		}
 
-		// если строка одного цвета
+		// если строка заполнена
 		if flag {
 			//считаем количество строк
 			linesCount++
 			for newY := y; newY > 0; newY-- {
 				for x := 0; x < 11; x++ {
-					g.board[newY][x] = g.board[newY-1][x]
+					g.Board[newY][x] = g.Board[newY-1][x]
 				}
 			}
 			// верхняя строка
 			for x := 0; x < 11; x++ {
-				g.board[0][x] = 0
+				g.Board[0][x] = 0
 			}
 			// чтобы убирать несколько строк подряд
 			y++
@@ -98,77 +402,92 @@ func (g *Game) checkLines() {
 	// Считаем очки за определенное количество строк
 	switch linesCount {
 	case 1:
-		g.score += 100
+		g.Score += 100
 	case 2:
-		g.score += 300
+		g.Score += 300
 	case 3:
-		g.score += 700
+		g.Score += 700
 	case 4:
-		g.score += 1500
+		g.Score += 1500
 	}
 }
 
-// перезапуск при проигрыше
-func restartGame(g *Game) *Game {
-	g.gameOver = false
-	g.board = [18][11]int{}
-	g.index = 1
-	g.figures = fig.RandomBag()
-	g.colors = fig.GetRandomNums()
-	g.currentFigure = fig.MapGetFigure[g.figures[0]]
-	g.currentColor = g.colors[0]
-	g.frameCount = 0
-	return g
+// чтение файла с рекордами
+func ReadRecord(num int) []string {
+	readFile, err := os.Open("records.txt")
+	if os.IsNotExist(err) {
+		f, _ := os.Create("records.txt")
+		f.WriteString("0 0 0 0 0\n")
+		f.WriteString("0 0 0 0 0\n")
+		f.WriteString("0 0 0 0 0\n")
+
+		f.Close()
+
+		readFile, err = os.Open("records.txt")
+		if err != nil {
+			panic(err)
+		}
+	} else if err != nil {
+		panic(err)
+	}
+
+	fileScanner := bufio.NewScanner(readFile)
+	fileScanner.Split(bufio.ScanLines)
+	var fileLines []string
+
+	for fileScanner.Scan() {
+		fileLines = append(fileLines, fileScanner.Text())
+	}
+
+	readFile.Close()
+
+	return strings.Fields(fileLines[num-1])
 }
 
-// логика игры
-func (g *Game) Update() error {
-	// для перазуска - нажать R
-	if g.gameOver {
-		if ebiten.IsKeyPressed(ebiten.KeyR) {
-			restartGame(g)
-		}
-		return nil
+// перезапись файла с рекордами
+func (g *Game) WriteRecord() {
+	readFile, err := os.Open("records.txt")
+	if err != nil {
+		panic(err)
 	}
 
-	g.frameCount++
-	if ebiten.IsKeyPressed(ebiten.KeyW) {
-		g.currentFigure = move.Spin(g.currentFigure, g.board)
+	fileScanner := bufio.NewScanner(readFile)
+	fileScanner.Split(bufio.ScanLines)
+	var fileLines []string
+
+	for fileScanner.Scan() {
+		fileLines = append(fileLines, fileScanner.Text())
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyD) {
-		g.currentFigure = move.Right(g.currentFigure, g.board)
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyA) {
-		g.currentFigure = move.Left(g.currentFigure, g.board)
-	}
-	// если нажата S ИЛИ количество прошедших кадров кратно выставленному обновлению (сложности), то опустить фигуру
-	if g.frameCount%g.frame == 0 || ebiten.IsKeyPressed(ebiten.KeySpace) {
-		if move.CanGoDown(g.currentFigure, g.board) {
-			g.currentFigure = move.Down(g.currentFigure, g.board)
-		} else {
-			for _, block := range g.currentFigure.Blocks {
-				x, y := block[0], block[1]
-				g.board[y][x] = g.currentColor
+
+	readFile.Close()
+
+	splittedLine := strings.Fields(fileLines[g.Difficulty-1])
+	for counter, field := range splittedLine {
+		num, _ := strconv.Atoi(field)
+		if g.Score > num {
+			copiedLine := make([]string, len(splittedLine))
+			copy(copiedLine, splittedLine)
+			splittedLine[counter] = strconv.Itoa(g.Score)
+
+			if counter != 4 {
+				for i := counter + 1; i < 5; i++ {
+					splittedLine[i] = copiedLine[i-1]
+				}
 			}
-			g.checkLines()
-			if g.index >= 7 {
-				g.figures = fig.RandomBag()
-				g.colors = fig.GetRandomNums()
-				g.index = 0
-			}
-			g.currentFigure = fig.MapGetFigure[g.figures[g.index]]
-			g.currentColor = g.colors[g.index]
-			g.index++
+			break
 		}
 	}
-	return nil
+
+	fileLines[g.Difficulty-1] = strings.Join(splittedLine, " ")
+
+	os.WriteFile("records.txt", []byte(strings.Join(fileLines, "\n")), 0666)
 }
 
 // окантовка из серых блоков
 func (g *Game) DrawEdging(screen *ebiten.Image) {
 	// серый квадрат со стороной BlockSize
 	color := bl.MapGetColor[8]
-	block := bl.GetBlock(blockSize, color.Basic, color.Darker, color.Lighter)
+	block := bl.GetBlock(blockSize, blockSize, 2, color.Basic, color.Darker, color.Lighter)
 	for y := 0; y < 20; y++ {
 		// рисуем слева
 		op := &ebiten.DrawImageOptions{}
@@ -191,51 +510,116 @@ func (g *Game) DrawEdging(screen *ebiten.Image) {
 	}
 }
 
-// вывод очков
-func (g *Game) drawText(screen *ebiten.Image) {
+func (g *Game) DrawBoard(screen *ebiten.Image) {
+	block := bl.GetBlock(blockSize, blockSize, 1, color.RGBA{0, 0, 0, 0}, color.RGBA{25, 25, 25, 255}, color.RGBA{25, 25, 25, 255})
+	for y := 1; y < 19; y++ {
+		for x := 1; x < 12; x++ {
+			op := &ebiten.DrawImageOptions{}
+			op.GeoM.Translate(float64(Margin+blockSize*x), float64(blockSize*y))
+			screen.DrawImage(block, op)
+		}
+	}
+}
+
+// вывод окошка "следующая фигура"
+func (g *Game) drawNextFig(screen *ebiten.Image) {
+	// фон для блока следующей фигуры
+	block1 := ebiten.NewImage(350, 350)
+	block1.Fill(color.RGBA{25, 25, 25, 255})
+	opBlock1 := &ebiten.DrawImageOptions{}
+	opBlock1.GeoM.Translate(float64(Margin)+775, 575)
+
+	block2 := ebiten.NewImage(300, 300)
+	block2.Fill(color.Black)
+	opBlock2 := &ebiten.DrawImageOptions{}
+	opBlock2.GeoM.Translate(float64(Margin)+800, 600)
+
+	screen.DrawImage(block1, opBlock1)
+	screen.DrawImage(block2, opBlock2)
+	// вывод текста
 	op := &text.DrawOptions{}
-	op.GeoM.Translate(float64(Margin)+720, 0)
-	strScore := fmt.Sprintf("Current score: %d", g.score)
+	op.GeoM.Translate(float64(Margin)+879, 602)
+
+	text.Draw(screen, "Next Figure", &text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   24,
+	}, op)
+
+	blocks := fig.MapGetFigure[g.Figures[g.Index]].Blocks
+	for _, block := range blocks {
+		x, y := block[0], block[1]
+		colorPal := bl.MapGetColor[fig.MapGetColor[g.Figures[g.Index]]]
+		block := bl.GetBlock(blockSize, blockSize, 2, colorPal.Basic, colorPal.Lighter, colorPal.Darker)
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Translate(float64(Margin)+float64(blockSize+x*blockSize)+600, float64(blockSize+y*blockSize)+620)
+		screen.DrawImage(block, op)
+	}
+}
+
+// вывод текущих очков
+func (g *Game) drawScore(screen *ebiten.Image) {
+	op := &text.DrawOptions{}
+	op.GeoM.Translate(float64(Margin)+817, 20)
+	strScore := fmt.Sprintf("Current score: %d", g.Score)
 	text.Draw(screen, strScore, &text.GoTextFace{
 		Source: mplusFaceSource,
 		Size:   24,
 	}, op)
 }
 
-// главная функция, отвечающая за отрисовку
-func (g *Game) Draw(screen *ebiten.Image) {
-	// проверка на заполненность поля
-	if g.board[0][5] != 0 {
-		g.DrawEdging(screen)
-		g.gameOver = true
+// вывод при поражении
+func (g *Game) drawLose(screen *ebiten.Image) {
+	scoreText := "Вы проиграли, набрав " + strconv.Itoa(g.Score) + " очков"
+	lines := []string{
+		scoreText,
+		"Для перезапуска нажмите R",
+	}
+	for i := 0; i < 2; i++ {
+		op := &text.DrawOptions{}
+		op.GeoM.Translate(float64(Margin)+blockSize*4, float64(400+50*i))
+		text.Draw(screen, lines[i], &text.GoTextFace{
+			Source: mplusFaceSource,
+			Size:   16,
+		}, op)
+	}
+}
+
+// вывод рекордов
+func (g *Game) drawRecords(screen *ebiten.Image) {
+	// фон для блока рекордов
+	block1 := ebiten.NewImage(350, 350)
+	block1.Fill(color.RGBA{56, 78, 255, 255})
+	opBlock1 := &ebiten.DrawImageOptions{}
+	opBlock1.GeoM.Translate(float64(Margin)+790, 75)
+	screen.DrawImage(block1, opBlock1)
+
+	block2 := ebiten.NewImage(300, 300)
+	block2.Fill(color.RGBA{30, 144, 255, 255})
+	opBlock2 := &ebiten.DrawImageOptions{}
+	opBlock2.GeoM.Translate(float64(Margin)+815, 100)
+	screen.DrawImage(block2, opBlock2)
+
+	// вывод текста
+	op := &text.DrawOptions{}
+	op.GeoM.Translate(float64(Margin)+915, 100)
+
+	text.Draw(screen, "Records", &text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   24,
+	}, op)
+
+	line := g.Records
+	for i := 0; i < 5; i++ {
+		op := &text.DrawOptions{}
+		op.GeoM.Translate(float64(Margin)+820, float64(150+i*50))
+
+		str := strconv.Itoa(i+1) + ". " + line[i] + "\n"
+		text.Draw(screen, str, &text.GoTextFace{
+			Source: mplusFaceSource,
+			Size:   20,
+		}, op)
 	}
 
-	screen.Fill(color.Transparent)
-	g.DrawEdging(screen)
-	g.drawText(screen)
-
-	// рисование с матрицы
-	for x := 0; x < 11; x++ {
-		for y := 0; y < 18; y++ {
-			if color := g.board[y][x]; color != 0 {
-				colorPal := bl.MapGetColor[color]
-				block := bl.GetBlock(blockSize, colorPal.Basic, colorPal.Lighter, colorPal.Darker)
-				op := &ebiten.DrawImageOptions{}
-				op.GeoM.Translate(float64(Margin)+float64(blockSize+x*blockSize), float64(blockSize+y*blockSize))
-				screen.DrawImage(block, op)
-			}
-		}
-	}
-	// рисование с временной фигуры в воздухе, она НЕ принадлежит матрице, становится её частью лишь после приземления
-	blocks := g.currentFigure.Blocks
-	for _, block := range blocks {
-		x, y := block[0], block[1]
-		colorPal := bl.MapGetColor[g.currentColor]
-		block := bl.GetBlock(blockSize, colorPal.Basic, colorPal.Lighter, colorPal.Darker)
-		op := &ebiten.DrawImageOptions{}
-		op.GeoM.Translate(float64(Margin)+float64(blockSize+x*blockSize), float64(blockSize+y*blockSize))
-		screen.DrawImage(block, op)
-	}
 }
 
 // получение координатной системы внутри окошка, беру на всё окно

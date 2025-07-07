@@ -24,23 +24,39 @@ var MapGetColor = map[int]BlockColor{
 }
 
 // Получение блока с окантовкой
-func GetBlock(n int, basic c.Color, darker c.Color, lighter c.Color) *ebiten.Image {
-	block := ebiten.NewImage(n, n)
+func GetBlock(x int, y int, layers int, basic c.Color, darker c.Color, lighter c.Color) *ebiten.Image {
+	block := ebiten.NewImage(x, y)
 	block.Fill(basic)
-	for i := 0; i < n; i++ {
-		block.Set(i, 0, darker)
-		block.Set(i, 1, darker)
 
-		block.Set(0, i, darker)
-		block.Set(1, i, darker)
+	if layers != 1 && layers != 2 {
+		panic("Ашипка")
+	}
+	for i := 0; i < x; i++ {
+		block.Set(i, 0, darker)
+		if layers == 2 {
+			block.Set(i, 1, darker)
+		}
 	}
 
-	for i := 0; i < n; i++ {
-		block.Set(i, n-1, lighter)
-		block.Set(i, n-2, lighter)
+	for i := 0; i < y; i++ {
+		block.Set(0, i, darker)
+		if layers == 2 {
+			block.Set(1, i, darker)
+		}
+	}
 
-		block.Set(n-1, i, lighter)
-		block.Set(n-2, i, lighter)
+	for i := 0; i < x; i++ {
+		block.Set(i, y-1, lighter)
+		if layers == 2 {
+			block.Set(i, y-2, lighter)
+		}
+	}
+
+	for i := 0; i < y; i++ {
+		block.Set(x-1, i, lighter)
+		if layers == 2 {
+			block.Set(x-2, i, lighter)
+		}
 	}
 
 	return block

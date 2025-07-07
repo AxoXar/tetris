@@ -6,26 +6,34 @@ import (
 
 // Нужно добавить функцию для поворота на W
 func Spin(piece fig.Figure, board [18][11]int) fig.Figure {
+	var (
+		newBlocks [4][2]int
+	)
 
-	for _, block := range piece.Blocks {
-		x, y := block[0], block[1]
-		if (x > 9 || board[y][x+1] != 0) && (x < 1 || board[y][x-1] != 0) {
-			return piece
+	for j := 0; j < 4; j++ {
+		xo, yo := piece.Blocks[j][0], piece.Blocks[j][1]
+		for i, block := range piece.Blocks {
+			x, y := block[0], block[1]
+
+			newBlocks[i][0] = xo - (y - yo)
+			newBlocks[i][1] = yo + (x - xo)
+		}
+
+		flag := true
+		for _, block := range newBlocks {
+			x, y := block[0], block[1]
+			if (x >= 11 || x < 0) || (y >= 18 || y < 0) || board[y][x] != 0 {
+				flag = false
+				break
+			}
+		}
+
+		if flag {
+			return fig.Figure{Blocks: newBlocks}
 		}
 	}
 
-	var (
-		newBlocks [4][2]int
-		xo, yo    int = piece.Blocks[0][0], piece.Blocks[0][1]
-	)
-	for i, block := range piece.Blocks {
-		x, y := block[0], block[1]
-
-		newBlocks[i][0] = xo - (y - yo)
-		newBlocks[i][1] = yo + (x - xo)
-	}
-
-	return fig.Figure{Blocks: newBlocks}
+	return piece
 }
 
 func Right(piece fig.Figure, board [18][11]int) fig.Figure {

@@ -33,6 +33,16 @@ var MapGetFigure = map[string]Figure{
 	},
 }
 
+var MapGetColor = map[string]int{
+	"L": 1,
+	"Z": 2,
+	"J": 3,
+	"I": 4,
+	"S": 5,
+	"O": 6,
+	"T": 7,
+}
+
 func FigureInNewBag(newBag [7]string, str string) bool {
 	for _, current := range newBag {
 		if current == str {
@@ -60,21 +70,4 @@ func RandomBag() [7]string {
 	}
 
 	return newBag
-}
-
-// 7 рандомных цветов без повторения
-func GetRandomNums() []int {
-	set := make(map[int]struct{})
-	for len(set) < 7 {
-		n := rand.IntN(7) + 1
-		set[n] = struct{}{}
-	}
-
-	var result []int
-
-	for k := range set {
-		result = append(result, k)
-	}
-
-	return result
 }

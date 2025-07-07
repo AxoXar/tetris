@@ -215,6 +215,22 @@ func (g *Game) Update() error {
 	return nil
 }
 
+func (g *Game) SaveProgress(filename string) error {
+	data, err := json.MarshalIndent(g, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filename, data, 0644)
+}
+
+func (g *Game) LoadProgress(filename string) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, g)
+}
+
 func (g *Game) loweringFigure() {
 	if move.CanGoDown(g.CurrentFigure, g.Board) {
 		g.CurrentFigure = move.Down(g.CurrentFigure, g.Board)
@@ -232,6 +248,48 @@ func (g *Game) loweringFigure() {
 			g.Figures = fig.RandomBag()
 			g.Index = 0
 		}
+	}
+}
+
+// функция для проверки заполненности строк
+func (g *Game) checkLines() {
+	var linesCount int
+	for y := 17; y >= 0; y-- {
+		flag := true
+		for x := 0; x < 11; x++ {
+			if g.Board[y][x] == 0 {
+				flag = false
+				break
+			}
+		}
+
+		// если строка заполнена
+		if flag {
+			//считаем количество строк
+			linesCount++
+			for newY := y; newY > 0; newY-- {
+				for x := 0; x < 11; x++ {
+					g.Board[newY][x] = g.Board[newY-1][x]
+				}
+			}
+			// верхняя строка
+			for x := 0; x < 11; x++ {
+				g.Board[0][x] = 0
+			}
+			// чтобы убирать несколько строк подряд
+			y++
+		}
+	}
+	// Считаем очки за определенное количество строк
+	switch linesCount {
+	case 1:
+		g.Score += 100
+	case 2:
+		g.Score += 300
+	case 3:
+		g.Score += 700
+	case 4:
+		g.Score += 1500
 	}
 }
 
@@ -296,22 +354,6 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 }
 
-func (g *Game) SaveProgress(filename string) error {
-	data, err := json.MarshalIndent(g, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filename, data, 0644)
-}
-
-func (g *Game) LoadProgress(filename string) error {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, g)
-}
-
 func (g *Game) drawButtons(screen *ebiten.Image) {
 	buttonText := make(map[int]string)
 	buttonText[0] = "Лёгкий"
@@ -343,9 +385,10 @@ func (g *Game) drawRules(screen *ebiten.Image) {
 		"Управление: W - поворот фигуры; A, D, Space - перемещение",
 		"Escape - поставить/снять паузу",
 		"Выберите сложность из предложенных",
+		"В любой момент вы можете сохранить и загрузить игру",
 		"Задача: полностью наполнять линии блоками",
 	}
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 5; i++ {
 		op := &text.DrawOptions{}
 		op.GeoM.Translate(float64(Margin)+blockSize*2, float64(400+50*i))
 		text.Draw(screen, lines[i], &text.GoTextFace{
@@ -368,119 +411,6 @@ func (g *Game) drawPauseInfo(screen *ebiten.Image) {
 			Size:   16,
 		}, op)
 	}
-}
-
-// функция для проверки заполненности строк
-func (g *Game) checkLines() {
-	var linesCount int
-	for y := 17; y >= 0; y-- {
-		flag := true
-		for x := 0; x < 11; x++ {
-			if g.Board[y][x] == 0 {
-				flag = false
-				break
-			}
-		}
-
-		// если строка заполнена
-		if flag {
-			//считаем количество строк
-			linesCount++
-			for newY := y; newY > 0; newY-- {
-				for x := 0; x < 11; x++ {
-					g.Board[newY][x] = g.Board[newY-1][x]
-				}
-			}
-			// верхняя строка
-			for x := 0; x < 11; x++ {
-				g.Board[0][x] = 0
-			}
-			// чтобы убирать несколько строк подряд
-			y++
-		}
-	}
-	// Считаем очки за определенное количество строк
-	switch linesCount {
-	case 1:
-		g.Score += 100
-	case 2:
-		g.Score += 300
-	case 3:
-		g.Score += 700
-	case 4:
-		g.Score += 1500
-	}
-}
-
-// чтение файла с рекордами
-func ReadRecord(num int) []string {
-	readFile, err := os.Open("records.txt")
-	if os.IsNotExist(err) {
-		f, _ := os.Create("records.txt")
-		f.WriteString("0 0 0 0 0\n")
-		f.WriteString("0 0 0 0 0\n")
-		f.WriteString("0 0 0 0 0\n")
-
-		f.Close()
-
-		readFile, err = os.Open("records.txt")
-		if err != nil {
-			panic(err)
-		}
-	} else if err != nil {
-		panic(err)
-	}
-
-	fileScanner := bufio.NewScanner(readFile)
-	fileScanner.Split(bufio.ScanLines)
-	var fileLines []string
-
-	for fileScanner.Scan() {
-		fileLines = append(fileLines, fileScanner.Text())
-	}
-
-	readFile.Close()
-
-	return strings.Fields(fileLines[num-1])
-}
-
-// перезапись файла с рекордами
-func (g *Game) WriteRecord() {
-	readFile, err := os.Open("records.txt")
-	if err != nil {
-		panic(err)
-	}
-
-	fileScanner := bufio.NewScanner(readFile)
-	fileScanner.Split(bufio.ScanLines)
-	var fileLines []string
-
-	for fileScanner.Scan() {
-		fileLines = append(fileLines, fileScanner.Text())
-	}
-
-	readFile.Close()
-
-	splittedLine := strings.Fields(fileLines[g.Difficulty-1])
-	for counter, field := range splittedLine {
-		num, _ := strconv.Atoi(field)
-		if g.Score > num {
-			copiedLine := make([]string, len(splittedLine))
-			copy(copiedLine, splittedLine)
-			splittedLine[counter] = strconv.Itoa(g.Score)
-
-			if counter != 4 {
-				for i := counter + 1; i < 5; i++ {
-					splittedLine[i] = copiedLine[i-1]
-				}
-			}
-			break
-		}
-	}
-
-	fileLines[g.Difficulty-1] = strings.Join(splittedLine, " ")
-
-	os.WriteFile("records.txt", []byte(strings.Join(fileLines, "\n")), 0666)
 }
 
 // окантовка из серых блоков
@@ -620,6 +550,77 @@ func (g *Game) drawRecords(screen *ebiten.Image) {
 		}, op)
 	}
 
+}
+
+// чтение файла с рекордами
+func ReadRecord(num int) []string {
+	readFile, err := os.Open("records.txt")
+	if os.IsNotExist(err) {
+		f, _ := os.Create("records.txt")
+		f.WriteString("0 0 0 0 0\n")
+		f.WriteString("0 0 0 0 0\n")
+		f.WriteString("0 0 0 0 0\n")
+
+		f.Close()
+
+		readFile, err = os.Open("records.txt")
+		if err != nil {
+			panic(err)
+		}
+	} else if err != nil {
+		panic(err)
+	}
+
+	fileScanner := bufio.NewScanner(readFile)
+	fileScanner.Split(bufio.ScanLines)
+	var fileLines []string
+
+	for fileScanner.Scan() {
+		fileLines = append(fileLines, fileScanner.Text())
+	}
+
+	readFile.Close()
+
+	return strings.Fields(fileLines[num-1])
+}
+
+// перезапись файла с рекордами
+func (g *Game) WriteRecord() {
+	readFile, err := os.Open("records.txt")
+	if err != nil {
+		panic(err)
+	}
+
+	fileScanner := bufio.NewScanner(readFile)
+	fileScanner.Split(bufio.ScanLines)
+	var fileLines []string
+
+	for fileScanner.Scan() {
+		fileLines = append(fileLines, fileScanner.Text())
+	}
+
+	readFile.Close()
+
+	splittedLine := strings.Fields(fileLines[g.Difficulty-1])
+	for counter, field := range splittedLine {
+		num, _ := strconv.Atoi(field)
+		if g.Score > num {
+			copiedLine := make([]string, len(splittedLine))
+			copy(copiedLine, splittedLine)
+			splittedLine[counter] = strconv.Itoa(g.Score)
+
+			if counter != 4 {
+				for i := counter + 1; i < 5; i++ {
+					splittedLine[i] = copiedLine[i-1]
+				}
+			}
+			break
+		}
+	}
+
+	fileLines[g.Difficulty-1] = strings.Join(splittedLine, " ")
+
+	os.WriteFile("records.txt", []byte(strings.Join(fileLines, "\n")), 0666)
 }
 
 // получение координатной системы внутри окошка, беру на всё окно

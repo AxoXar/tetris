@@ -100,14 +100,6 @@ func restartGame(g *Game) *Game {
 
 // логика игры
 func (g *Game) Update() error {
-	// для перезапуска после поражения - нажать R
-	if g.GameOver {
-		if ebiten.IsKeyPressed(ebiten.KeyR) {
-			restartGame(g)
-		}
-		return nil
-	}
-
 	// пауза
 	pressedEsc := ebiten.IsKeyPressed(ebiten.KeyEscape)
 	if pressedEsc {
@@ -130,7 +122,7 @@ func (g *Game) Update() error {
 		if g.HoldKeys["M1"] == 1 {
 			x, y := ebiten.CursorPosition()
 			for i := 0; i < 3; i++ {
-				if (x >= 110 && x <= 510) && (y >= (75+i*200) && y <= (75+i*200+100)) {
+				if (!g.Started || g.GameOver) && (x >= 110 && x <= 510) && (y >= (75+i*200) && y <= (75+i*200+100)) {
 					g.Difficulty = 3 - i
 					g.Records = ReadRecord(g.Difficulty)
 					if !g.Started {
@@ -141,12 +133,12 @@ func (g *Game) Update() error {
 				}
 			}
 
-			if (x >= 110 && x <= 510) && (y >= (75+3*200) && y <= (75+3*200+100)) {
+			if (g.Started && !g.GameOver) && (x >= 110 && x <= 510) && (y >= (75+3*200) && y <= (75+3*200+100)) {
 				err := g.SaveProgress("save.json")
 				if err != nil {
 					fmt.Println("Ошибка сохранения:", err)
 				}
-			} else if (x >= 110 && x <= 510) && (y >= (75+4*200) && y <= (75+4*200+100)) {
+			} else if (!g.Started || g.GameOver) && (x >= 110 && x <= 510) && (y >= (75+4*200) && y <= (75+4*200+100)) {
 				err := g.LoadProgress("save.json")
 				if err != nil {
 					fmt.Println("Ошибка загрузки:", err)
@@ -155,6 +147,14 @@ func (g *Game) Update() error {
 		}
 	} else if !pressedMouse {
 		g.HoldKeys["M1"] = 0
+	}
+
+	// для перезапуска после поражения - нажать R
+	if g.GameOver {
+		if ebiten.IsKeyPressed(ebiten.KeyR) {
+			restartGame(g)
+		}
+		return nil
 	}
 
 	// не входить в логику, если игра не запущена

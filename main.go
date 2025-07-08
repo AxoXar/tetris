@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	g "tetris/game"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -15,5 +16,13 @@ func main() {
 	game := g.NewGame()
 	if err := ebiten.RunGame(game); err != nil {
 		panic(err)
+	}
+	defer saveAtexit(game)
+}
+
+func saveAtexit(game *g.Game) {
+	err := game.SaveProgress("save.json")
+	if err != nil {
+		fmt.Println("Ошибка сохранения:", err)
 	}
 }

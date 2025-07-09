@@ -66,6 +66,7 @@ func NewGame() *Game {
 		"M1":    0,
 		"Space": 0,
 		"Esc":   0,
+		"S":     0,
 	}
 	return &Game{
 		Difficulty:    0,
@@ -198,16 +199,28 @@ func (g *Game) Update() error {
 	}
 
 	// если нажата S ИЛИ количество прошедших кадров кратно выставленному обновлению (сложности), то опустить фигуру
-	pressedSpace := ebiten.IsKeyPressed(ebiten.KeySpace)
-	if pressedSpace {
-		g.HoldKeys["Space"]++
-		if g.HoldKeys["Space"] == 1 {
+	pressedS := ebiten.IsKeyPressed(ebiten.KeyS)
+	if pressedS {
+		g.HoldKeys["S"]++
+		if g.HoldKeys["S"] == 1 {
 			g.loweringFigure()
-		} else if g.HoldKeys["Space"] > 5 && g.HoldKeys["Space"]%2 == 0 {
+		} else if g.HoldKeys["S"] > 5 && g.HoldKeys["S"]%2 == 0 {
 			g.loweringFigure()
 		}
 	} else if (g.FrameCount)%(g.Difficulty*3) == 0 {
 		g.loweringFigure()
+	} else if !pressedS {
+		g.HoldKeys["S"] = 0
+	}
+
+	pressedSpace := ebiten.IsKeyPressed(ebiten.KeySpace)
+	if pressedSpace {
+		g.HoldKeys["Space"]++
+		if g.HoldKeys["Space"] == 1 {
+			for k := g.loweringFigure(); k; {
+				k = g.loweringFigure()
+			}
+		}
 	} else if !pressedSpace {
 		g.HoldKeys["Space"] = 0
 	}
@@ -231,9 +244,10 @@ func (g *Game) LoadProgress(filename string) error {
 	return json.Unmarshal(data, g)
 }
 
-func (g *Game) loweringFigure() {
+func (g *Game) loweringFigure() bool {
 	if move.CanGoDown(g.CurrentFigure, g.Board) {
 		g.CurrentFigure = move.Down(g.CurrentFigure, g.Board)
+		return true
 	} else {
 		for _, block := range g.CurrentFigure.Blocks {
 			x, y := block[0], block[1]
@@ -248,6 +262,7 @@ func (g *Game) loweringFigure() {
 			g.Figures = fig.RandomBag()
 			g.Index = 0
 		}
+		return false
 	}
 }
 
@@ -382,13 +397,14 @@ func (g *Game) drawButtons(screen *ebiten.Image) {
 
 func (g *Game) drawRules(screen *ebiten.Image) {
 	lines := []string{
-		"Управление: W - поворот фигуры; A, D, Space - перемещение",
+		"Управление: W - поворот фигуры; A, D, S - перемещение",
+		"Space - мгновенно опустить вниз",
 		"Escape - поставить/снять паузу",
 		"Выберите сложность из предложенных",
 		"В любой момент вы можете сохранить и загрузить игру",
 		"Задача: полностью наполнять линии блоками",
 	}
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 6; i++ {
 		op := &text.DrawOptions{}
 		op.GeoM.Translate(float64(Margin)+blockSize*2, float64(400+50*i))
 		text.Draw(screen, lines[i], &text.GoTextFace{
